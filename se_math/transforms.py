@@ -1,4 +1,5 @@
 """ gives some transform methods for 3d points """
+
 import math
 
 import torch
@@ -56,7 +57,7 @@ class OnUnitCube:
 
 
 class Resampler:
-    """ [N, D] -> [M, D] """
+    """[N, D] -> [M, D]"""
 
     def __init__(self, num):
         self.num = num
@@ -71,7 +72,7 @@ class Resampler:
             idx = torch.randperm(num_points)
             sel = min(remainder, num_points)
             val = tensor[idx[:sel]]
-            out[selected:(selected + sel)] = val
+            out[selected : (selected + sel)] = val
             selected += sel
         return out
 
@@ -130,7 +131,7 @@ class RandomRotatorZ:
 
 
 class RandomJitter:
-    """ generate perturbations """
+    """generate perturbations"""
 
     def __init__(self, scale=0.01, clip=0.05):
         self.scale = scale
@@ -149,7 +150,7 @@ class RandomJitter:
 
 
 class RandomTransformSE3:
-    """ rigid motion """
+    """rigid motion"""
 
     def __init__(self, mag=1, mag_randomly=False):
         self.mag = mag
@@ -167,12 +168,12 @@ class RandomTransformSE3:
         x = x / x.norm(p=2, dim=1, keepdim=True) * amp
         self.x = x
 
-        '''a = torch.rand(3)
+        """a = torch.rand(3)
         a = a * math.pi
         b = torch.zeros(1, 6)
         b[:, 0:3] = a
         x = x+b
-        '''
+        """
         return x  # [1, 6]
 
     def apply_transform(self, p0, x):
@@ -193,7 +194,8 @@ class RandomTransformSE3:
     def __call__(self, tensor):
         return self.transform(tensor)
 
-    def  get_x(self):
+    def get_x(self):
         return self.x
+
 
 # EOF

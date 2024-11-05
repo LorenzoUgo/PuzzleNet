@@ -16,8 +16,8 @@ torch.cuda.set_device(2)
 #  p2.requires_grad = True
 
 #  gt_dist = (((p1[0, 0] - p2[0, 1])**2).sum() + ((p1[0, 1] - p2[0, 0])**2).sum()) / 2 +  \
-         #  (((p1[1, 0] - p2[1, 1])**2).sum() + ((p1[1, 1] - p2[1, 0])**2).sum()) * 2 + \
-         #  (((p1[2, 0] - p2[2, 1])**2).sum() + ((p1[2, 1] - p2[2, 0])**2).sum()) / 3
+#  (((p1[1, 0] - p2[1, 1])**2).sum() + ((p1[1, 1] - p2[1, 0])**2).sum()) * 2 + \
+#  (((p1[2, 0] - p2[2, 1])**2).sum() + ((p1[2, 1] - p2[2, 0])**2).sum()) / 3
 #  print('gt_dist: ', gt_dist)
 
 #  gt_dist.backward()
@@ -31,8 +31,8 @@ torch.cuda.set_device(2)
 #  p2 = p2.repeat(3, 1, 1)
 #  print(p1)
 #  print(p2)
-p1 = torch.randn(16,1024,3)
-p2 = torch.randn(16,1024,3)
+p1 = torch.randn(16, 1024, 3)
+p2 = torch.randn(16, 1024, 3)
 p1.requires_grad = True
 p2.requires_grad = True
 p1 = p1.cuda()
@@ -48,4 +48,3 @@ print(loss)
 loss.backward()
 print(p1.grad)
 print(p2.grad)
-

@@ -4,7 +4,7 @@ import torch
 
 
 def batch_inverse(x):
-    """ M(n) -> M(n); x -> x^-1 """
+    """M(n) -> M(n); x -> x^-1"""
     batch_size, h, w = x.size()
     assert h == w
     y = torch.zeros_like(x)
@@ -14,7 +14,7 @@ def batch_inverse(x):
 
 
 def batch_inverse_dx(y):
-    """ backward """
+    """backward"""
     # Let y(x) = x^-1.
     # compute dy
     #   dy = dy(j,k)
@@ -28,7 +28,7 @@ def batch_inverse_dx(y):
     #   = - (y(j,:))' * y'(k,:)
     yl = y.repeat(1, 1, h).view(batch_size * h * h, h, 1)
     yr = y.transpose(1, 2).repeat(1, h, 1).view(batch_size * h * h, 1, h)
-    dy = - yl.bmm(yr).view(batch_size, h, h, h, h)
+    dy = -yl.bmm(yr).view(batch_size, h, h, h, h)
 
     # compute dy(m,n,j,k) = dy(j,k)/dx(m,n) = - y(j,m) * y(n,k)
     #   = - (y'(m,:))' * y(n,:)
@@ -40,7 +40,7 @@ def batch_inverse_dx(y):
 
 
 def batch_pinv_dx(x):
-    """ returns y = (x'*x)^-1 * x' and dy/dx. """
+    """returns y = (x'*x)^-1 * x' and dy/dx."""
     # y = (x'*x)^-1 * x'
     #   = s^-1 * x'
     #   = b * x'
@@ -81,8 +81,7 @@ def batch_pinv_dx(x):
 
 
 class InvMatrix(torch.autograd.Function):
-    """ M(n) -> M(n); x -> x^-1.
-    """
+    """M(n) -> M(n); x -> x^-1."""
 
     @staticmethod
     def forward(ctx, x):
@@ -92,7 +91,7 @@ class InvMatrix(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        y, = ctx.saved_tensors  # v0.4
+        (y,) = ctx.saved_tensors  # v0.4
         # y, = ctx.saved_variables  # v0.3.1
         batch_size, h, w = y.size()
         assert h == w
@@ -112,7 +111,8 @@ class InvMatrix(torch.autograd.Function):
         return grad_input
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+
     def test():
         x = torch.randn(2, 3, 2)
         x_val = x.requires_grad_()
@@ -129,7 +129,6 @@ if __name__ == '__main__':
         print(t1)
         print(t2)
         print(t1 - t2)
-
 
     test()
 

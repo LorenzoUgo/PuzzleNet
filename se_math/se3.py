@@ -1,4 +1,5 @@
 """ 3-d rigid body transfomation group and corresponding Lie algebra. """
+
 import torch
 from .sinc import sinc1, sinc2, sinc3
 from . import so3
@@ -30,11 +31,15 @@ def mat(x):
     v1, v2, v3 = x_[:, 3], x_[:, 4], x_[:, 5]
     O = torch.zeros_like(w1)
 
-    X = torch.stack((
-        torch.stack((O, -w3, w2, v1), dim=1),
-        torch.stack((w3, O, -w1, v2), dim=1),
-        torch.stack((-w2, w1, O, v3), dim=1),
-        torch.stack((O, O, O, O), dim=1)), dim=1)
+    X = torch.stack(
+        (
+            torch.stack((O, -w3, w2, v1), dim=1),
+            torch.stack((w3, O, -w1, v2), dim=1),
+            torch.stack((-w2, w1, O, v3), dim=1),
+            torch.stack((O, O, O, O), dim=1),
+        ),
+        dim=1,
+    )
     return X.view(*(x.size()[0:-1]), 4, 4)
 
 
@@ -127,14 +132,13 @@ def group_prod(g, h):
 
 
 class ExpMap(torch.autograd.Function):
-    """ Exp: se(3) -> SE(3)
-    """
+    """Exp: se(3) -> SE(3)"""
 
     @staticmethod
     def forward(ctx, x):
-        """ Exp: R^6 -> M(4),
-            size: [B, 6] -> [B, 4, 4],
-              or  [B, 1, 6] -> [B, 1, 4, 4]
+        """Exp: R^6 -> M(4),
+        size: [B, 6] -> [B, 4, 4],
+          or  [B, 1, 6] -> [B, 1, 4, 4]
         """
         ctx.save_for_backward(x)
         g = exp(x)
@@ -142,7 +146,7 @@ class ExpMap(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        x, = ctx.saved_tensors
+        (x,) = ctx.saved_tensors
         g = exp(x)
         gen_k = genmat().to(x)
 

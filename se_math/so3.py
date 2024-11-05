@@ -1,4 +1,5 @@
 """ 3-d rotation group and corresponding Lie algebra """
+
 import torch
 from . import sinc
 from .sinc import sinc1, sinc2, sinc3
@@ -19,10 +20,14 @@ def mat(x):
     x1, x2, x3 = x_[:, 0], x_[:, 1], x_[:, 2]
     O = torch.zeros_like(x1)
 
-    X = torch.stack((
-        torch.stack((O, -x3, x2), dim=1),
-        torch.stack((x3, O, -x1), dim=1),
-        torch.stack((-x2, x1, O), dim=1)), dim=1)
+    X = torch.stack(
+        (
+            torch.stack((O, -x3, x2), dim=1),
+            torch.stack((x3, O, -x1), dim=1),
+            torch.stack((-x2, x1, O), dim=1),
+        ),
+        dim=1,
+    )
     return X.view(*(x.size()[0:-1]), 3, 3)
 
 
@@ -98,8 +103,8 @@ def log(g):
     c = (tr - 1) / 2
     t = torch.acos(c)
     sc = sinc1(t)
-    idx0 = (torch.abs(sc) <= eps)
-    idx1 = (torch.abs(sc) > eps)
+    idx0 = torch.abs(sc) <= eps
+    idx1 = torch.abs(sc) > eps
     sc = sc.view(-1, 1, 1)
 
     X = torch.zeros_like(R)
@@ -146,8 +151,8 @@ def group_prod(g, h):
 
 
 def vecs_Xg_ig(x):
-    """ Vi = vec(dg/dxi * inv(g)), where g = exp(x)
-        (== [Ad(exp(x))] * vecs_ig_Xg(x))
+    """Vi = vec(dg/dxi * inv(g)), where g = exp(x)
+    (== [Ad(exp(x))] * vecs_ig_Xg(x))
     """
     t = x.view(-1, 3).norm(p=2, dim=1).view(-1, 1, 1)
     X = mat(x)
@@ -164,7 +169,7 @@ def vecs_Xg_ig(x):
 
 
 def inv_vecs_Xg_ig(x):
-    """ H = inv(vecs_Xg_ig(x)) """
+    """H = inv(vecs_Xg_ig(x))"""
     t = x.view(-1, 3).norm(p=2, dim=1).view(-1, 1, 1)
     X = mat(x)
     S = X.bmm(X)
@@ -172,8 +177,8 @@ def inv_vecs_Xg_ig(x):
 
     e = 0.01
     eta = torch.zeros_like(t)
-    s = (t < e)
-    c = (s == 0)
+    s = t < e
+    c = s == 0
     t2 = t[s] ** 2
     eta[s] = ((t2 / 40 + 1) * t2 / 42 + 1) * t2 / 720 + 1 / 12  # O(t**8)
     eta[c] = (1 - (t[c] / 2) / torch.tan(t[c] / 2)) / (t[c] ** 2)
@@ -183,14 +188,13 @@ def inv_vecs_Xg_ig(x):
 
 
 class ExpMap(torch.autograd.Function):
-    """ Exp: so(3) -> SO(3)
-    """
+    """Exp: so(3) -> SO(3)"""
 
     @staticmethod
     def forward(ctx, x):
-        """ Exp: R^3 -> M(3),
-            size: [B, 3] -> [B, 3, 3],
-              or  [B, 1, 3] -> [B, 1, 3, 3]
+        """Exp: R^3 -> M(3),
+        size: [B, 3] -> [B, 3, 3],
+          or  [B, 1, 3] -> [B, 1, 3, 3]
         """
         ctx.save_for_backward(x)
         g = exp(x)
@@ -198,7 +202,7 @@ class ExpMap(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        x, = ctx.saved_tensors
+        (x,) = ctx.saved_tensors
         g = exp(x)
         gen_k = genmat().to(x)
         # gen_1 = gen_k[0, :, :]
