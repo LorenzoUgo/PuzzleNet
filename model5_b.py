@@ -56,7 +56,6 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from pylab import *
 
-
 import pdb
 
 """
@@ -135,8 +134,8 @@ class Encoder(nn.Module):
 
     def forward(self, xyz):
         # print(xyz.shape)
-        x = F.relu(self.bn1(self.mlp1(xyz)))
-        x = F.relu(self.bn2(self.mlp2(x)))
+        x = F.relu(self.bn1(self.mlp1(xyz)))      # Green Block 1
+        x = F.relu(self.bn2(self.mlp2(x)))          # Green Block 2
         x, f1 = self.sg1(512, 0, 32, xyz, x, False, True) # [B, N , 3] [B, N, 32, 64+3]
         # print(x.shape)
         # print(f1.shape)
@@ -166,6 +165,74 @@ class Encoder(nn.Module):
         out = torch.max(out, dim=1)[0]  # [B, 1024] 1024是特征长度
 
         return out, x2, attention
+
+class New_Encoder(nn.Module):
+    def __init__(self, config, num_points=1024) -> None:
+        super(PCTransformer_nonsort, self).__init__()
+        self.C = config
+        feature_size = 64
+        gs2_feature_size = 128
+
+        self.fc1 = nn.Linear(in_features=3, out_features=64)
+        self.fc2 = nn.Linear(64, 64)
+        self.fc3 = nn.Linear(64+3, 128)
+        self.fc4 = nn.Linear(128, 128)
+        self.fc5 = nn.Linear(128+3, 256)
+        self.fc6 = nn.Linear(256, 256)
+        
+        self.fc1_bn1 = nn.BatchNorm1d(num_points)
+        self.fc2_bn2 = nn.BatchNorm1d(num_points)
+        self.sg1_bn1 = nn.BatchNorm1d(num_points//2)
+        self.sg1_bn2 = nn.BatchNorm1d(num_points//2)
+        self.sg2_bn1 = nn.BatchNorm1d(num_points//4)
+        self.sg2_bn2 = nn.BatchNorm1d(num_points//4)
+
+        self.sg1 = pu.sample_and_group
+        self.fps = pu.farthest_point_sample
+        self.sg2 = pu.sample_and_group
+        
+        self.atten1 = layerAttention(self.C, 256)
+        self.atten2 = layerAttention(self.C, 256)
+        self.atten3 = layerAttention(self.C, 256)
+        self.atten4 = layerAttention(self.C, 256)
+
+        self.out = nn.Linear(256 * 5, 1024)
+
+    def forward(self, pointcloud):
+        #   2x Linear & ReLu & batchNorm1
+        x = F.relu(self.bn1(self.fc1(pointcloud)))
+        x = F.relu(self.bn2(self.fc2(x)))
+
+        #   Sample & Group + 2x Linear & ReLu & batchNorm1
+        new_pointcloud, points_data = self.sg1(512, 0, 32, pointcloud, x, False, True) # [B, N=512 , 3], [B, N=512, 32, 64+3]
+        points_data = F.relu(self.sg1_bn1(self.fc3(points_data)))
+        points_data = F.relu(self.sg2_bn2(self.fc4(points_data)))
+        data = torch.max(points_data, dim=-2)[0]
+        
+        #   Sample & Group + 2x Linear & ReLu & batchNorm1
+        new_pointcloud, points_data = self.sg2(256, 0, 32, x, data, False, True) # [B, N=256, 3], [B, N=256, 32, 128+3]
+        points_data = F.relu(self.sg2_bn1(self.fc5(points_data)))
+        points_data = F.relu(self.sg2_bn2(self.fc6(points_data)))
+        data = torch.max(points_data, dim=-2)[0] # [B, 256, 256]
+        
+        #   4x Attention Layer
+        att1, attention1 = self.atten1(data)  
+        att2, attention2 = self.atten2(att1)
+        att3, attention3 = self.atten3(att2)
+        att4, attention4 = self.atten4(att3)
+        att = torch.cat([att1, att2, att3, att4], dim=-1)
+        attention = attention1 + attention2 + attention3 + attention4
+        attention = attention / 4 
+
+        #   Concatenate Attention outputs w/ SGs output
+        att = torch.cat([att, data], dim=-1)
+
+        #   Linear 
+        out = self.out(att)
+        out = torch.max(out, dim=1)[0]  # [B, 1024] 1024是特征长度
+
+        return out, new_pointcloud, attention #TODO: paper says output from linear (x); code says output form SGs (new_pointcloud)
+
 """
 #=============================================
 Decoder
@@ -481,7 +548,6 @@ class PCTransformer_nonsort(nn.Module):
 
 def batch_quat2mat(batch_quat):
     '''
-
     :param batch_quat: shape=(B, 4)
     :return:
     '''
@@ -511,6 +577,67 @@ class MultiHeadAttention(nn.Module):
 
         self.w_qs = nn.Linear()
 
+
+class Transformation_Decoder(nn.Module):
+    def __init__(self, config, num_points=2048) -> None:
+        super(BiDecoderNoneCross, self).__init__()
+        self.C = config
+
+        self.fc_transformation = nn.Sequential(
+            nn.Linear(num_points, 1024),
+            nn.BatchNorm1d(1024),
+            nn.ReLU(),
+            nn.Linear(1024, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Linear(512, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Linear(512, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Linear(256, 6)
+        )
+        self.rotation_matrix = batch_quat2mat
+
+
+    def forward(self, data):
+        out = self.fc_transformation(data)
+        t = out[:,:3]
+        q = out[:, 3:] / torch.norm(out[:, 3:], dim=1, keepdim=True)
+
+        R = self.rotation_matrix(q)
+        return t, R
+
+class Boundary_Decoder(nn.Module):
+    def __init__(self, config, num_points=1024) -> None:
+        super(BiDecoderNoneCross, self).__init__()
+        self.C = config
+
+        self.fc1 = nn.Linear(256, 64)
+        self.mlp2 = nn.Linear(512, 256)
+        self.mlp3 = nn.Linear(256, 2)
+
+
+
+    def forward(self, local_feature_P, local_feature_Q):
+        # f_local [B, 256, 1024]
+        # f_global [B, 1, 1024]
+        #  print(f_local.shape)
+        #  print(f_global.shape)
+        f_global = f_global.unsqueeze(1) if len(f_global.shape) ==2 else f_global #[B, 1, 1024]
+        f = f_global.repeat(1,256,1) # [ B, 256, 1024 ]
+        f = torch.cat([f_local, f], dim=1).permute(0,2,1) #[B,1024,512]
+        #  print(f.shape)
+        #  f = self.mlp1()
+        #  f = F.sigmoid(self.mlp1(f))
+        #  f = F.sigmoid(self.mlp2(f))
+        f = F.relu(self.bnself.mlp1(f))
+        f = F.relu(self.mlp2(f))
+        f = self.mlp3(f)
+        #  pdb.set_trace()
+        return f.permute(0,2,1) # [B, 2, 1024]
+
 """
 #=============================================
 Model
@@ -524,18 +651,22 @@ class TouchedRegraster(pl.LightningModule):
         # Network configs
         self.C = config
         
-        # Network componenets
-        #  self.Encoder = PCTransformer(config) # TODO: 有个问题，现在的网络是否对旋转敏感？
-        #  self.Encoder = PCTransformer_nonsort(config) # TODO: 有个问题，现在的网络是否对旋转敏感？
-        self.Encoder = PCTransformer_nonsort(config) # TODO: 有个问题，现在的网络是否对旋转敏感？
-        self.Encoder2 = PCTransformer_nonsort(config) # TODO: 有个问题，现在的网络是否对旋转敏感？
-        #  self.Encoder2= PCTransformer_nonsort(config)
-        # Decoder的结构可能需要多试几次，分别是1，FMR里面的decoder。2，基于transformer的decoder
-        #  self.Decoder = PCTransformerDecoder(config) 
-        #  self.Decoder = PCTransformerDecoder(config) 
-        #  self.mrpcbDecoder = PCTransformerDecoder(config) 
-        self.fpc_decoder = BiDecoderNoneCross(config)
-        self.rpc_decoder = BiDecoderNoneCross(config)
+        #   Network components
+        #   self.Encoder = PCTransformer(config) # TODO: 有个问题，现在的网络是否对旋转敏感？
+        #   self.Encoder = PCTransformer_nonsort(config) # TODO: 有个问题，现在的网络是否对旋转敏感？
+        #   self.Encoder2= PCTransformer_nonsort(config)
+        #   Decoder的结构可能需要多试几次，分别是1，FMR里面的decoder。2，基于transformer的decoder
+        #   self.Decoder = PCTransformerDecoder(config) 
+        #   self.Decoder = PCTransformerDecoder(config) 
+        #   self.mrpcbDecoder = PCTransformerDecoder(config) 
+        #   self.fpc_decoder = BiDecoderNoneCross(config)
+        #   self.rpc_decoder = BiDecoderNoneCross(config)
+
+        self.Encoder_1 = New_Encoder(config)
+        self.Encoder_2 = New_Encoder(config)
+
+        self.TransformationDecoder = Transformation_Decoder(config) 
+        self.BoundaryDecoder = Boundary_Decoder(config) 
 
         # utils for touchedReg
         delta = 1.0e-2  # step size for approx. Jacobian
@@ -575,6 +706,7 @@ class TouchedRegraster(pl.LightningModule):
                 nn.ReLU(),
                 nn.Linear(64, 64)
                 )
+        
         self.MLPLocalPreFpc = nn.Sequential(
                 nn.Linear(64, 64),
                 nn.ReLU(),
@@ -590,6 +722,7 @@ class TouchedRegraster(pl.LightningModule):
                 nn.ReLU(),
                 nn.Linear(32, 2),
                 )
+        
         self.MLPFpcb = nn.Sequential(
                 nn.Linear(128, 64),
                 nn.ReLU(),
@@ -666,8 +799,6 @@ class TouchedRegraster(pl.LightningModule):
             return  out, out, de_fpcb, de_mrpcb
         if need:
             return out, [0], ffpcs[1], ffpcs[2], fmrpcs[1], fmrpcs[2], de_fpcb, de_mrpcb # xyz, attention
-
-    
 
     def predict5(self,batch, batch_indic,need=False, training=False):
         """
@@ -849,7 +980,6 @@ class TouchedRegraster(pl.LightningModule):
             return  out, out
         if need:
             return out, [0], ffpcs[1], ffpcs[2], fmrpcs[1], fmrpcs[2] # xyz, attention
-
 
     def predict2(self,batch, batch_indic,need=False, training=False):
         """
@@ -1381,7 +1511,6 @@ class TouchedRegraster(pl.LightningModule):
                 fout.writelines(str(ss.detach().data.cpu().numpy())+'   ')
             fout.writelines('\n')
 
-
     def vis_attention(self, tag, x2, attention, index,  axis=True):
         """
         attention:  [B, 255, 255]
@@ -1406,8 +1535,6 @@ class TouchedRegraster(pl.LightningModule):
         self.logger.experiment.add_figure(tag, fig, global_step=self.global_step)
         return fig
 
-
-
     def split(self, filename, normal):
         pc = o3d.io.read_point_cloud(filename.replace('''\\''', '''/'''))
         points = np.asarray(pc.points)
@@ -1418,10 +1545,6 @@ class TouchedRegraster(pl.LightningModule):
         down = points[bool]
 
         return up, down
-
-
-
-
 
     def compute_metrics(self, R, t, igt):
         """
@@ -1439,16 +1562,11 @@ class TouchedRegraster(pl.LightningModule):
         cur_t_isotropic = metrics.isotropic_t_error(t, inv_t, inv_R)
         return cur_r_mse, cur_r_mae, cur_t_mse, cur_t_mae, cur_r_isotropic, cur_t_isotropic
 
-
-
-
-
     def trans(self, pc, R, t):
         #  print(R.shape)
         #  print(pc.shape)
         #  print(t.shape)
         return pc.bmm(R) + t.unsqueeze(1)
-
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.C.lr)
@@ -1489,8 +1607,6 @@ class TouchedRegraster(pl.LightningModule):
         J = df / dt.unsqueeze(1)
 
         return J
-
-
 
     def chamfer_loss(self, a, b):
         x, y = a, b
