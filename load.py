@@ -5,7 +5,8 @@ import random
 
 class CustomImageDataset(torch.utils.data.Dataset):
     def __init__(self, transform=None, target_transform=None):
-        data_path = "data/np_ob_all_10000_test_2.npy"
+        #   data_path = "data/np_ob_all_10000_test_2.npy"
+        data_path = "modelnet40_test.npy"
         self.img_labels = np.load(data_path, allow_pickle=True)
         self.transform = transform
         self.target_transform = target_transform
@@ -22,7 +23,8 @@ class CustomImageDataset(torch.utils.data.Dataset):
         #     label = self.target_transform(label)
 
 
-data_path = "data/np_ob_all_10000_test_2.npy"
+#   data_path = "data/np_ob_all_10000_test_2.npy"
+data_path = "modelnet40_test.npy"
 
 data = np.load(data_path, allow_pickle=True)
 

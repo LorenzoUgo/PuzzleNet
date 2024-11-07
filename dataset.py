@@ -768,7 +768,7 @@ optimized datasets
 
 
 def sphere_split(points, z=None):
-    print("SPHER SPLITTING HERE")
+    # print("SPHER SPLITTING HERE")
     sphere = o3d.geometry.TriangleMesh.create_sphere(radius=0.5, resolution=50)
     #  sphere.rotate(o3d.geometry.get_rotation_matrix_from_axis_angle(np.random.rand(3,1)), (0,0,0))
     sphere.translate(np.random.rand(3, 1) / 3)
@@ -1360,7 +1360,7 @@ class CADDataset(torch.utils.data.Dataset):
         return down, mup, igt, up, downb, upb, fpc_idx, rpc_idx
 
     def __getitem__(self, index):
-        # print("HELLOOOOOO")
+        # print(index)
         if not self.split_twice:
             return self.getitem_non_random(index)
         # print("FIRST IF NOT STUCK")
@@ -1523,11 +1523,11 @@ def get_dataset(category, random=False, random_slice=False):
     bed_name = "np_ob_all_10000_train_2.npy"
     vase_name = "np_vase_all_11000_train_2.npy"'''
 
-    #   path_dataset = "/media/tesistiremoti/Volume/MuseoEgizio/PuzzleNet"
-    #   breakingBad = "everyday.npy"
-
     path_dataset = "/media/tesistiremoti/Volume/MuseoEgizio/PuzzleNet/data"
-    breakingBad = "np_vase_all_11000_test_2.npy"
+    breakingBad = "bed_airplane_modelnet40_train.npy"
+
+    # path_dataset = "/media/tesistiremoti/Volume/MuseoEgizio/PuzzleNet/data"
+    # breakingBad = "np_vase_all_11000_test_2.npy"
 
     if category == "fr":
         # 建筑点云
@@ -1682,25 +1682,28 @@ def get_dataset(category, random=False, random_slice=False):
     elif category == "bedr":
         # 球面切
         traindataset = CADDataset(
-            cad_datapath,
-            name=bed_name,
+            path_dataset,
+            name=breakingBad,
             mode="train",
             split_twice=random_slice,
             pc_slice=plane_split,
+            device="cuda",
         )
         valdataset = CADDataset(
-            cad_datapath,
-            name=bed_name,
+            path_dataset,
+            name=breakingBad,
             mode="val",
             split_twice=random_slice,
             pc_slice=plane_split,
+            device="cuda",
         )
         testdataset = CADDataset(
-            cad_datapath,
-            name=bed_name,
+            path_dataset,
+            name=breakingBad,
             mode="test",
             split_twice=random_slice,
             pc_slice=plane_split,
+            device="cuda",
         )
     elif category == "vaser":
         # 球面切

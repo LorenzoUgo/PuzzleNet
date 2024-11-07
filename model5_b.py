@@ -343,7 +343,7 @@ class BiDecoderNoneCross(nn.Module):
         self.mlp3 = nn.Linear(256, 2)
 
     def forward(self, f_local, f_global):
-        print(" --- ---> Starting BiDecoderNoneCross <--- --- ")
+        # print(" --- ---> Starting BiDecoderNoneCross <--- --- ")
         # f_local [B, 256, 1024]
         # f_global [B, 1, 1024]
         #  print(f_local.shape)
@@ -452,7 +452,7 @@ class PCTransformer_nonsort(nn.Module):
         self.out = nn.Linear(gs2_feature_size * 2 * 5, 1024)
 
     def forward(self, xyz):
-        print(" --- ---> Starting PCTransformer_nonsort <--- --- ")
+        # print(" --- ---> Starting PCTransformer_nonsort <--- --- ")
         #  print(xyz.shape)
         #  if len(xyz.shape) == 2 and xyz.shape[0] == 1024:
         #  xyz = xyz.unsqueeze(0)
@@ -633,7 +633,7 @@ class TouchedRegraster(pl.LightningModule):
 
     def forward(self, batch, bat):
         print(" --- ---> Passo forward del modello <--- --- ")
-        return self.predict6(batch, bat)
+        return self.predict4(batch, bat)
 
     def predict6(self, batch, batch_indic, need=False, training=False, pretrain=False):
         """

@@ -133,26 +133,25 @@ def main(opt):
     traindataset, valdataset, testdataset = dataset.get_dataset(
         opt.dataset, random=opt.random, random_slice=opt.random_slice
     )
-    num_workers = torch.cuda.device_count() * 4
-    #  num_workers = 64
+    #   num_workers = torch.cuda.device_count() * 4
+    num_workers = 64
     #  num_workers = 4
     traindataloader = torch.utils.data.DataLoader(
         traindataset,
-        batch_size=10,  # opt.batch_size
-        drop_last=True,
+        batch_size=opt.batch_size,
+        drop_last=False,
         shuffle=True,
         pin_memory=True,
         num_workers=num_workers,
     )
     valdataloader = torch.utils.data.DataLoader(
         valdataset,
-        batch_size=10,  # opt.batch_size,
-        drop_last=True,
+        batch_size=opt.batch_size,
+        drop_last=False,
         shuffle=False,
         pin_memory=True,
         num_workers=num_workers,
     )
-
     # TODO: batch_size 应该是1去做
     testdataloader = torch.utils.data.DataLoader(
         testdataset,
@@ -199,12 +198,12 @@ def main(opt):
         max_epochs=opt.epochs,
         #  callbacks=[checkpoint_callback, early_stop],
         callbacks=[checkpoint_callback],
-        #  log_every_n_steps=3,
+        log_every_n_steps=2,
         check_val_every_n_epoch=10,
         #  num_sanity_val_steps=0,
         enable_progress_bar=True,
         enable_checkpointing=True,
-        fast_dev_run=True,
+        # fast_dev_run=True,
     )
     print("---> Start training ...")
     trainer.fit(model, traindataloader, val_dataloaders=valdataloader)

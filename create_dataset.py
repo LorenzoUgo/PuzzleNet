@@ -27,17 +27,25 @@ import open3d as o3d
 
 data_path = "/media/tesistiremoti/Volume/MuseoEgizio/Datasets/ModelNet40/"
 
-final_data = []
+categories = ["bed", "airplane"]  # TODO: automatically get all categories
 
-for obj_type in os.listdir(data_path):
-    if obj_type == "bed" or obj_type == "airplane":
-        for obj in os.listdir(os.path.join(data_path, obj_type, "train")):
-            piece = o3d.io.read_point_cloud(os.path.join(data_path, obj_type, obj))
-            piece = np.array(piece.points) / np.linalg.norm(
-                piece.points, axis=1
-            ).reshape(len(piece.points), 1)
-            print(piece.shape)
-            final_data.append(piece)
+for dataset in ["train", "test"]:
 
-final_data = np.array(final_data)
-np.save("modelnet40.npy", final_data)
+    final_data = []
+
+    for obj_type in os.listdir(data_path):
+        if obj_type in categories:
+            print(f"* * * {categories} - {obj_type} * * *")
+            for obj in os.listdir(os.path.join(data_path, obj_type, dataset)):
+                #   print(obj)
+                piece = o3d.io.read_triangle_mesh(
+                    os.path.join(data_path, obj_type, dataset, obj)
+                )
+                pc = piece.sample_points_uniformly(15000)
+                pc = np.array(pc.points) / np.linalg.norm(pc.points, axis=1).reshape(
+                    len(pc.points), 1
+                )
+                final_data.append(pc)
+
+    final_data = np.array(final_data)
+    np.save(f"data/" + "_".join(categories) + f"_modelnet40_{dataset}.npy", final_data)
