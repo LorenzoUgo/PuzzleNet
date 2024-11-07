@@ -768,13 +768,17 @@ optimized datasets
 
 
 def sphere_split(points, z=None):
+    print("SPHER SPLITTING HERE")
     sphere = o3d.geometry.TriangleMesh.create_sphere(radius=0.5, resolution=50)
     #  sphere.rotate(o3d.geometry.get_rotation_matrix_from_axis_angle(np.random.rand(3,1)), (0,0,0))
     sphere.translate(np.random.rand(3, 1) / 3)
     sphere = o3d.t.geometry.TriangleMesh.from_legacy(sphere)
     scene = o3d.t.geometry.RaycastingScene()
     scene.add_triangles(sphere)
-    qurey = o3d.core.Tensor([points], dtype=o3d.core.Dtype.Float32)
+    qurey = o3d.core.Tensor(
+        [points],
+        dtype=o3d.core.Dtype.Float32,
+    )
     res = scene.compute_signed_distance(qurey)
     res = res.numpy().squeeze()
     bools = np.array([res < 0]).squeeze()
@@ -1221,9 +1225,8 @@ class BreakingDataset(torch.utils.data.Dataset):
 
 class CADDataset(torch.utils.data.Dataset):
     """
-    输入的时候每个点云作为一个完整的点云输入，没有分成上下两部分，每次取的时候随机切一刀
-    同时给点云以边界信息
-    切两刀
+    Dataset personalizzato per il caricamento di punto cloud. I dati vengono tagliati e gestiti per il training
+    su una rete neurale, con supporto per il trasferimento dei dati sulla GPU.
     """
 
     def __init__(
@@ -1235,14 +1238,24 @@ class CADDataset(torch.utils.data.Dataset):
         name="np_out2_all_11000_train_2.npy",
         split_twice=False,
         pc_slice=plane_split,
+        random=False,
+        need=False,
+        device=None,  # Aggiunto il parametro per il dispositivo
     ):
         super().__init__()
+        self.device = (
+            device if device else torch.device("cpu")
+        )  # Se il dispositivo non è passato, usa la CPU
         self.split_twice = split_twice
+        # print("split_twice", split_twice)
         self.path = path
         self.all = np.load(os.path.join(self.path, name), allow_pickle=True)
-        self.split = pc_slice
 
-        #  print(pc_slice)
+        if self.all is not None:
+            print(self.all.shape)
+        self.split = pc_slice
+        self.rigid_transform = transforms.RandomTransformSE3(0.8, random)
+        self.need = need
 
         assert split_rate <= 1
         assert split_rate > 0
@@ -1292,227 +1305,127 @@ class CADDataset(torch.utils.data.Dataset):
         return point
 
     def getitem_non_random(self, index):
-        ##
-        # @brief        只考虑分成两个部分的情况
-        # @param index
-        # @return       上、下两部分，上下两个的边界
-
+        # print("I?M HERE")
         pc = self.all[index]
+        # print(pc)
         up, down = self.split(np.array(pc, dtype=np.float32))
-        #  print(up.shape)
-        #  print(down.shape)
+        # print(up.shape, down.shape)
         while up.shape[0] < 1024 or down.shape[0] < 1024:
-            #  print('sample2')
-            #  print(up.shape)
-            #  print(down.shape)
+            # print(up.shape, down.shape)
+
             up, down = self.split(np.array(pc, dtype=np.float32))
+
         self.up = self.fps(up, 1024)  # facade point cloud
         self.down = self.fps(down, 1024)  # roof point cloud
 
-        self.up = torch.from_numpy(self.up).to(torch.float32)
-        self.down = torch.from_numpy(self.down).to(torch.float32)
+        self.up = torch.from_numpy(self.up).float()
+        self.down = torch.from_numpy(self.down).float()
 
-        self.fpcb, self.rpcb, fpc_idx, rpc_idx = self.get_boundary(
-            self.down, self.up
-        )  # fpc boundary
+        self.fpcb, self.rpcb, fpc_idx, rpc_idx = self.get_boundary(self.down, self.up)
 
-        #  print(self.up.shape, self.down.shape, self.fpcb.shape, self.rpcb.shape)
+        return self.rotatepiece(
+            index, self.up, self.down, self.fpcb, self.rpcb, fpc_idx, rpc_idx
+        )
 
-        return self.up, self.down, self.fpcb, self.rpcb, fpc_idx, rpc_idx
-
-    def slice(self, pc, z, up, down, times=5):
-        # 回退
+    def slice(self, index, z, up, down, times=5):
+        pc = self.all[index]
         time = 0
         while up.shape[0] < 1024 or down.shape[0] < 1024:
             up, down = self.split(pc, z)
         up, down = self.fps(up, 1024), self.fps(down, 1024)
-        self.up = torch.from_numpy(up).to(torch.float32)
-        self.down = torch.from_numpy(down).to(torch.float32)
+        self.up = torch.from_numpy(up).float()
+        self.down = torch.from_numpy(down).float()
         self.fpcb, self.rpcb, fpc_idx, rpc_idx = self.get_boundary(self.down, self.up)
-        return self.up, self.down, self.fpcb, self.rpcb, fpc_idx, rpc_idx
+        return self.rotatepiece(
+            index, self.up, self.down, self.fpcb, self.rpcb, fpc_idx, rpc_idx
+        )
+
+    def rotatepiece(self, index, up, down, downb, upb, fpc_idx, rpc_idx):
+        mup = self.rigid_transform(up)
+        igt = self.rigid_transform.igt  # igt: up-> mup
+        mupb = self.rigid_transform(upb)
+
+        if self.need:
+            return (
+                down,
+                mup,
+                igt,
+                up,
+                downb,
+                upb,
+                fpc_idx,
+                rpc_idx,
+                self.dataset[index][-1],
+            )
+        return down, mup, igt, up, downb, upb, fpc_idx, rpc_idx
 
     def __getitem__(self, index):
-        #  print('nonono')
+        # print("HELLOOOOOO")
         if not self.split_twice:
-            #  print('hello')
             return self.getitem_non_random(index)
+        # print("FIRST IF NOT STUCK")
         pc = self.all[index]
         slice_seed = torch.randint(0, 3, (1,))
         slice_seed = int(slice_seed)
         up, down = self.split(np.array(pc, dtype=np.float32))
 
-        # 节省数据
-        if slice_seed == 1 and up.shape[0] < 3000:
-            slice_seed = 2
-        if slice_seed == 2 and down.shape[0] < 3000:
-            slice_seed = 1
-
         if slice_seed == 0:
-            # 中间切一刀就够了
-            return self.slice(pc, None, up, down)
+            # print("SECOND IF IS TRUE")
+
+            return self.slice(index, None, up, down)
         elif slice_seed == 1:
-            # 上面切一刀
+            # print("SECOND IF IS FALSE")
+
             time = 0
-            #  uppc = up
             uppc, downpc = self.split(up, None)
             while time <= 5 and (uppc.shape[0] < 1024 or downpc.shape[0] < 1024):
+                # print("STUCK IN THE WHILE")
+
                 uppc, downpc = self.split(up, None)
                 time += 1
+            # print("NOT STUCK IN THE WHILE")
+
             if time > 5 and (uppc.shape[0] < 1024 or downpc.shape[0] < 1024):
-                return self.slice(pc, None, up, down)
+                # print("SECOND, A IF IS TRUE")
+
+                return self.slice(index, None, up, down)
             if uppc.shape[0] >= 1024 and downpc.shape[0] >= 1024:
+                # print("SECOND, B IF IS TRUE")
+
                 se = int(torch.randint(0, 3, (1,)))
                 if se == 0 or down.shape[0] < 1024:
-                    # up_down and up_up are composed with up
+                    # print("SECOND, B, i IF IS TRUE")
+
                     choice = int(torch.randint(0, 2, (1,)))
                     up_up = [uppc, downpc][choice]
                     up_up = self.fps(up_up, 1024)
                     up_down = self.fps(
                         np.vstack(([uppc, downpc][(choice + 1) % 2], down)), 1024
                     )
-                    up_up = torch.from_numpy(up_up).to(torch.float32)
-                    up_down = torch.from_numpy(up_down).to(torch.float32)
+                    up_up = torch.from_numpy(up_up).float().to(self.device)
+                    up_down = torch.from_numpy(up_down).float().to(self.device)
                     fpcb, rpcb, fpc_idx, rpc_idx = self.get_boundary(up_down, up_up)
-                    return up_up, up_down, fpcb, rpcb, fpc_idx, rpc_idx
+                    return self.rotatepiece(
+                        index, up_up, up_down, fpcb, rpcb, fpc_idx, rpc_idx
+                    )
                 elif se == 1:
-                    # up_down and up_up are composed with up
+                    # print("SECOND, B, ii IF IS TRUE")
+
                     choice = int(torch.randint(0, 2, (1,)))
                     up_up = [uppc, downpc][choice]
                     up_up = self.fps(up_up, 1024)
                     up_down = self.fps(down, 1024)
-                    up_up = torch.from_numpy(up_up).to(torch.float32)
-                    up_down = torch.from_numpy(up_down).to(torch.float32)
+                    up_up = torch.from_numpy(up_up).float().to(self.device)
+                    up_down = torch.from_numpy(up_down).float().to(self.device)
                     fpcb, rpcb, fpc_idx, rpc_idx = self.get_boundary(up_down, up_up)
-                    cd1, cd2 = self.chamfer_loss(fpcb.unsqueeze(0), rpcb.unsqueeze(0))
-                    cd = torch.mean(cd1) + torch.mean(cd2)
-                    if float(cd) > 0.015:
-                        return self.slice(pc, None, up, down)
-                    return up_up, up_down, fpcb, rpcb, fpc_idx, rpc_idx
-                uppc, downpc = self.fps(uppc, 1024), self.fps(downpc, 1024)
-                self.up = torch.from_numpy(uppc).to(torch.float32)
-                self.down = torch.from_numpy(downpc).to(torch.float32)
-                self.fpcb, self.rpcb, fpc_idx, rpc_idx = self.get_boundary(
-                    self.down, self.up
-                )
-                re_now = np.random.rand(1)
-                if re_now > 0.7:
-                    return self.up, self.down, self.fpcb, self.rpcb, fpc_idx, rpc_idx
-                else:
-                    """多返回一些，连着上面的up、down等"""
-                    if down.shape[0] < 1200:
-                        return (
-                            self.up,
-                            self.down,
-                            self.fpcb,
-                            self.rpcb,
-                            fpc_idx,
-                            rpc_idx,
-                        )
-                    #  down = self.fps(down, 1024)
-                    down = torch.from_numpy(down).to(torch.float32)
-                    #  cd1, cd2 = self.chamfer_loss(self.up.unsqueeze(0), down.unsqueeze(0))
-                    #  cd = torch.mean(cd1) + torch.mean(cd2)
-                    #  cd1, cd2 = self.chamfer_loss(self.down.unsqueeze(0), down.unsqueeze(0))
-                    #  cdd = torch.mean(cd1)+ torch.mean(cd2)
-                    #  if cd > cdd:
-                    d = self.down
-                    self.down = torch.cat([down, self.up], dim=0)
-                    self.up = d
-                    #  else:
-                    #  d = self.down
-                    #  self.down = torch.cat([down, self.up], dim=0)
-                    #  self.up = d
-                    self.down, self.up = self.fps(self.down.numpy(), 1024), self.fps(
-                        self.up.numpy(), 1024
+                    return self.rotatepiece(
+                        index, up_up, up_down, fpcb, rpcb, fpc_idx, rpc_idx
                     )
-                    self.up = torch.from_numpy(uppc).to(torch.float32)
-                    self.down = torch.from_numpy(downpc).to(torch.float32)
-                    self.fpcb, self.rpcb, fpc_idx, rpc_idx = self.get_boundary(
-                        self.down, self.up
-                    )
-                    return self.up, self.down, self.fpcb, self.rpcb, fpc_idx, rpc_idx
 
-        elif slice_seed == 2:
-            # 下面切一刀
-            time = 0
-            #  uppc = down
-            uppc, downpc = self.split(down, None)
-            while time <= 5 and (uppc.shape[0] < 1024 or downpc.shape[0] < 1024):
-                uppc, downpc = self.split(down, None)
-                time += 1
-            if time > 5 and (uppc.shape[0] < 1024 or downpc.shape[0] < 1024):
-                return self.slice(pc, None, up, down)
-            if uppc.shape[0] >= 1024 and downpc.shape[0] >= 1024:
-                se = int(torch.randint(0, 3, (1,)))
-                if se == 0 or up.shape[0] < 1024:
-                    # down_down and down_up are composed with up
-                    choice = int(torch.randint(0, 2, (1,)))
-                    down_up = [uppc, downpc][choice]
-                    down_up = self.fps(down_up, 1024)
-                    down_down = self.fps(
-                        np.vstack(([uppc, downpc][(choice + 1) % 2], up)), 1024
-                    )
-                    down_up = torch.from_numpy(down_up).to(torch.float32)
-                    down_down = torch.from_numpy(down_down).to(torch.float32)
-                    fpcb, rpcb, fpc_idx, rpc_idx = self.get_boundary(down_down, down_up)
-                    return down_up, down_down, fpcb, rpcb, fpc_idx, rpc_idx
-                elif se == 1:
-                    # down_down and down_up are composed with up
-                    choice = int(torch.randint(0, 2, (1,)))
-                    down_up = [uppc, downpc][choice]
-                    down_up = self.fps(down_up, 1024)
-                    down_down = self.fps(up, 1024)
-                    down_up = torch.from_numpy(down_up).to(torch.float32)
-                    down_down = torch.from_numpy(down_down).to(torch.float32)
-                    fpcb, rpcb, fpc_idx, rpc_idx = self.get_boundary(down_down, down_up)
-                    cd1, cd2 = self.chamfer_loss(fpcb.unsqueeze(0), rpcb.unsqueeze(0))
-                    cd = torch.mean(cd1) + torch.mean(cd2)
-                    if float(cd) > 0.015:
-                        return self.slice(pc, None, up, down)
-                    return down_up, down_down, fpcb, rpcb, fpc_idx, rpc_idx
-                uppc, downpc = self.fps(uppc, 1024), self.fps(downpc, 1024)
-                self.up = torch.from_numpy(uppc).to(torch.float32)
-                self.down = torch.from_numpy(downpc).to(torch.float32)
-                self.fpcb, self.rpcb, fpc_idx, rpc_idx = self.get_boundary(
-                    self.down, self.up
-                )
-                re_now = np.random.rand(1)
-                if re_now > 0.6:
-                    return self.up, self.down, self.fpcb, self.rpcb, fpc_idx, rpc_idx
-                else:
-                    """多返回一些，连着上面的up、down等"""
-                    if up.shape[0] < 1200:
-                        return (
-                            self.up,
-                            self.down,
-                            self.fpcb,
-                            self.rpcb,
-                            fpc_idx,
-                            rpc_idx,
-                        )
-                    #  up = self.fps(up, 1024)
-                    up = torch.from_numpy(up).to(torch.float32)
-                    #  cd1, cd2 = self.chamfer_loss(self.up.unsqueeze(0), up.unsqueeze(0))
-                    #  cd = torch.mean(cd1) + torch.mean(cd2)
-                    #  cd1, cd2 = self.chamfer_loss(self.down.unsqueeze(0), up.unsqueeze(0))
-                    #  cdd = torch.mean(cd1)+ torch.mean(cd2)
-                    #  if cd > cdd:
-                    self.down = torch.cat([up, self.down], dim=0)
-                    #  self.up = self.up
-                    #  else:
-                    #  d = self.down
-                    #  self.down = torch.cat([up, self.up], dim=0)
-                    #  self.up = d
-                    self.down, self.up = self.fps(self.down.numpy(), 1024), self.fps(
-                        self.up.numpy(), 1024
-                    )
-                    self.up = torch.from_numpy(uppc).to(torch.float32)
-                    self.down = torch.from_numpy(downpc).to(torch.float32)
-                    self.fpcb, self.rpcb, fpc_idx, rpc_idx = self.get_boundary(
-                        self.down, self.up
-                    )
-                    return self.up, self.down, self.fpcb, self.rpcb, fpc_idx, rpc_idx
-                return self.up, self.down, self.fpcb, self.rpcb
+                uppc, downpc = self.split(up, None)
+        # print("LAST IF NOT STUCK")
+
+        return self.slice(index, None, up, down)
 
     def get_boundary(self, fpc, de_mrpc):
         cd1, cd2 = self.chamfer_loss(fpc.unsqueeze(0), de_mrpc.unsqueeze(0))
@@ -1597,6 +1510,7 @@ class BuildingDataset(torch.utils.data.Dataset):
 
 
 def get_dataset(category, random=False, random_slice=False):
+    '''
     cad_datapath = "/home/code/transReg/data/cad"
     building_datapath = "/home/code/fmr/data/"
 
@@ -1607,7 +1521,13 @@ def get_dataset(category, random=False, random_slice=False):
         name = "np_out_all_6000_train_2.npy"
     name = "np_out2_all_11000_train_2.npy"
     bed_name = "np_ob_all_10000_train_2.npy"
-    vase_name = "np_vase_all_11000_train_2.npy"
+    vase_name = "np_vase_all_11000_train_2.npy"'''
+
+    #   path_dataset = "/media/tesistiremoti/Volume/MuseoEgizio/PuzzleNet"
+    #   breakingBad = "everyday.npy"
+
+    path_dataset = "/media/tesistiremoti/Volume/MuseoEgizio/PuzzleNet/data"
+    breakingBad = "np_vase_all_11000_test_2.npy"
 
     if category == "fr":
         # 建筑点云
@@ -1690,25 +1610,28 @@ def get_dataset(category, random=False, random_slice=False):
     elif category == "bed_sphere":
         # 球面切
         traindataset = CADDataset(
-            cad_datapath,
-            name=bed_name,
+            path_dataset,
+            name=breakingBad,
             mode="train",
             split_twice=random_slice,
             pc_slice=sphere_split,
+            device="cuda",
         )
         valdataset = CADDataset(
-            cad_datapath,
-            name=bed_name,
+            path_dataset,
+            name=breakingBad,
             mode="val",
             split_twice=random_slice,
             pc_slice=sphere_split,
+            device="cuda",
         )
         testdataset = CADDataset(
-            cad_datapath,
-            name=bed_name,
+            path_dataset,
+            name=breakingBad,
             mode="test",
             split_twice=random_slice,
             pc_slice=sphere_split,
+            device="cuda",
         )
     elif category == "bed_cone":
         # 球面切
@@ -1878,10 +1801,11 @@ def get_dataset(category, random=False, random_slice=False):
     else:
         raise RuntimeError("Unknown dataset")
 
-    trainset = MovedCADDataset2(
-        traindataset, transforms.RandomTransformSE3(0.8, random)
-    )
-    valset = MovedCADDataset2(valdataset, transforms.RandomTransformSE3(0.8, random))
-    testset = MovedCADDataset2(testdataset, transforms.RandomTransformSE3(0.8, random))
+    # trainset = MovedCADDataset2(
+    #     traindataset, transforms.RandomTransformSE3(0.8, random)
+    # )
+    # valset = MovedCADDataset2(valdataset, transforms.RandomTransformSE3(0.8, random))
+    # testset = MovedCADDataset2(testdataset, transforms.RandomTransformSE3(0.8, random))
 
-    return trainset, valset, testset
+    # return trainset, valset, testset
+    return traindataset, valdataset, testdataset

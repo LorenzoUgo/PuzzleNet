@@ -1,60 +1,43 @@
 import trimesh as tm
 import os
 import numpy as np
+import open3d as o3d
 
-data_path = "/media/tesistiremoti/Volume/MuseoEgizio/Datasets/"
+# data_path = "/media/tesistiremoti/Volume/MuseoEgizio/Datasets/everyday"
 
-train_dir = (
-    "/media/tesistiremoti/Volume/MuseoEgizio/Datasets/data_split/everyday.train.txt"
-)
-with open(train_dir, "r") as f:
-    dir_list = [os.path.join(data_path, line.strip()) for line in f.readlines()]
+# final_data = []
 
-final_data = np.empty((0, 3))
+# for obj_type in os.listdir(data_path):
+#     for code in os.listdir(os.path.join(data_path, obj_type)):
+#         for frac in os.listdir(os.path.join(data_path, obj_type, code)):
+#             if len(os.listdir(os.path.join(data_path, obj_type, code, frac))) != 1:
+#                 continue
+#             print(data_path, obj_type, code, frac)
+#             frac = os.path.join(data_path, obj_type, code, frac)
+#             for piece in os.listdir(frac):
+#                 piece = tm.load_mesh(os.path.join(frac, piece))
+#                 pc = tm.sample.sample_surface(piece, 15000)
+#                 pc = np.array(pc[0]) / np.linalg.norm(pc[0], axis=1).reshape(15000, 1)
+#                 print(pc.shape)
+#                 final_data.append(pc)
 
-for mesh in dir_list:
-    if not os.path.isdir(mesh):
-        print(f"{mesh} does not exist")
-        continue
-    for frac in os.listdir(mesh):
-        print(mesh, frac)
-        if "fractured" not in frac and "mode" not in frac:
-            continue
-        if len(os.listdir(os.path.join(data_path, mesh, frac))) == 1:
-            continue
-        frac = os.path.join(mesh, frac)
-        for piece in os.listdir(frac):
-            piece = tm.load_mesh(os.path.join(frac, piece))
-            pc = tm.sample.sample_surface(piece, 15000)
-            pc = np.array(pc[0]) / np.linalg.norm(pc[0], axis=1).reshape(15000, 1)
-            final_data = np.concatenate((final_data, pc), axis=0)
+# final_data = np.array(final_data)
 
-np.save("everyday_train.npy", final_data)
+# np.save("everyday.npy", final_data)
 
-test_dir = (
-    "/media/tesistiremoti/Volume/MuseoEgizio/Datasets/data_split/everyday.test.txt"
-)
+data_path = "/media/tesistiremoti/Volume/MuseoEgizio/Datasets/ModelNet40/"
 
-with open(train_dir, "r") as f:
-    dir_list = [os.path.join(data_path, line.strip()) for line in f.readlines()]
+final_data = []
 
-final_data = np.empty((0, 3))
+for obj_type in os.listdir(data_path):
+    if obj_type == "bed" or obj_type == "airplane":
+        for obj in os.listdir(os.path.join(data_path, obj_type, "train")):
+            piece = o3d.io.read_point_cloud(os.path.join(data_path, obj_type, obj))
+            piece = np.array(piece.points) / np.linalg.norm(
+                piece.points, axis=1
+            ).reshape(len(piece.points), 1)
+            print(piece.shape)
+            final_data.append(piece)
 
-for mesh in dir_list:
-    if not os.path.isdir(mesh):
-        print(f"{mesh} does not exist")
-        continue
-    for frac in os.listdir(mesh):
-        if "fractured" not in frac and "mode" not in frac:
-            continue
-        if len(os.listdir(os.path.join(data_path, mesh, frac))) == 1:
-            continue
-        frac = os.path.join(mesh, frac)
-        for piece in os.listdir(frac):
-            print(mesh, frac, piece)
-            piece = tm.load_mesh(os.path.join(frac, piece))
-            pc = tm.sample.sample_surface(piece, 15000)
-            pc = np.array(pc[0]) / np.linalg.norm(pc[0], axis=1).reshape(15000, 1)
-            final_data = np.concatenate((final_data, pc), axis=0)
-
-np.save("everyday_test.npy", final_data)
+final_data = np.array(final_data)
+np.save("modelnet40.npy", final_data)

@@ -134,33 +134,43 @@ def main(opt):
         opt.dataset, random=opt.random, random_slice=opt.random_slice
     )
     num_workers = torch.cuda.device_count() * 4
-    num_workers = 64
+    #  num_workers = 64
     #  num_workers = 4
     traindataloader = torch.utils.data.DataLoader(
         traindataset,
-        batch_size=opt.batch_size,
+        batch_size=10,  # opt.batch_size
         drop_last=True,
         shuffle=True,
+        pin_memory=True,
         num_workers=num_workers,
     )
     valdataloader = torch.utils.data.DataLoader(
         valdataset,
-        batch_size=opt.batch_size,
+        batch_size=10,  # opt.batch_size,
         drop_last=True,
         shuffle=False,
+        pin_memory=True,
         num_workers=num_workers,
     )
+
     # TODO: batch_size 应该是1去做
     testdataloader = torch.utils.data.DataLoader(
         testdataset,
         batch_size=1,
         drop_last=False,
         shuffle=False,
+        pin_memory=True,
         num_workers=num_workers,
     )
-    print(len(valdataset))
-    print(len(traindataset))
 
+    print(next(iter(traindataloader))[0].shape)
+
+    # exit(1)
+    print(len(valdataloader), len(traindataloader), len(testdataloader))
+    print("TEST", len(testdataset))
+
+    print("VAL", len(valdataset))
+    print("TRAIN", len(traindataset))
     # TODO: trainer 的配置需要增加一些
     #  trainer = pl.Trainer(accelerator='gpu',
     #  devices=[opt.device],
@@ -192,8 +202,14 @@ def main(opt):
         #  log_every_n_steps=3,
         check_val_every_n_epoch=10,
         #  num_sanity_val_steps=0,
+        enable_progress_bar=True,
+        enable_checkpointing=True,
+        fast_dev_run=True,
     )
+    print("---> Start training ...")
     trainer.fit(model, traindataloader, val_dataloaders=valdataloader)
+
+    print("---> Start testing ...")
     trainer.test(model, dataloaders=testdataloader)
 
 
