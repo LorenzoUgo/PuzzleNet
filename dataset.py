@@ -17,7 +17,6 @@ import se_math.mesh as mesh
 import se_math.transforms as transforms
 
 import json
-import open3d as o3d
 
 
 class ModifiedTransformedDataset(torch.utils.data.Dataset):

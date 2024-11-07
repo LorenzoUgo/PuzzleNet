@@ -9,19 +9,13 @@ import numpy as np
 import dataset
 import datetime
 import argparse
-import os, sys
+import sys
 import time
 
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, early_stopping
 
-
-#  import model6_boundary as import_model
-import model5_b as import_model  # 论文用的模型
-
-#  import model8 as import_model
-#  import model3_c3 as import_model
-#  import model3_e2 as import_model
+import model5_b as import_model
 
 
 def parse_arg(argv=None):
@@ -65,9 +59,7 @@ def parse_arg(argv=None):
     parser.add_argument("--alpha", default=1.0, type=float)
     parser.add_argument("--beta", default=1.0, type=float)
     parser.add_argument("--lr", default=1e-3, type=float)
-    parser.add_argument(
-        "--dataset", default="fr", type=str, help="dataset type, fr or cad or bs"
-    )
+    parser.add_argument("--dataset", default="fr", type=str, help="dataset type, fr or cad or bs")
     parser.add_argument(
         "--look", default=False, action="store_true", help="look or not"
     )
@@ -122,7 +114,7 @@ def main(opt):
         f.writelines("---------------ending-------------\n")
 
     print("************************************")
-    print("     ", opt.output_path)
+    print(opt.output_path)
     print("************************************")
 
     # get Model
@@ -134,7 +126,6 @@ def main(opt):
         opt.dataset, random=opt.random, random_slice=opt.random_slice
     )
     num_workers = torch.cuda.device_count() * 4
-    num_workers = 64
     #  num_workers = 4
     traindataloader = torch.utils.data.DataLoader(
         traindataset,
@@ -150,7 +141,7 @@ def main(opt):
         shuffle=False,
         num_workers=num_workers,
     )
-    # TODO: batch_size 应该是1去做
+    # TODO: correct use with batch_size=1
     testdataloader = torch.utils.data.DataLoader(
         testdataset,
         batch_size=1,
