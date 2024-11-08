@@ -770,7 +770,10 @@ optimized datasets
 def sphere_split(points, z=None):
     # print("SPHER SPLITTING HERE")
     sphere = o3d.geometry.TriangleMesh.create_sphere(radius=0.5, resolution=50)
-    #  sphere.rotate(o3d.geometry.get_rotation_matrix_from_axis_angle(np.random.rand(3,1)), (0,0,0))
+    sphere.rotate(
+        o3d.geometry.get_rotation_matrix_from_axis_angle(np.random.rand(3, 1)),
+        (0, 0, 0),
+    )
     sphere.translate(np.random.rand(3, 1) / 3)
     sphere = o3d.t.geometry.TriangleMesh.from_legacy(sphere)
     scene = o3d.t.geometry.RaycastingScene()
@@ -782,6 +785,7 @@ def sphere_split(points, z=None):
     res = scene.compute_signed_distance(qurey)
     res = res.numpy().squeeze()
     bools = np.array([res < 0]).squeeze()
+    #   print(sum(bools), sum(~bools))
     up = points[bools]
     down = points[~bools]
     return up, down
@@ -1223,7 +1227,9 @@ class BreakingDataset(torch.utils.data.Dataset):
             return points2, points1, fpcb, rpcb, fpc_idx, rpc_idx, items
 
 
-class CADDataset(torch.utils.data.Dataset):
+class CADDataset(
+    torch.utils.data.Dataset
+):  # big changes in commit e4137babf993837128d27707a0d55ee138871ec1
     """
     Dataset personalizzato per il caricamento di punto cloud. I dati vengono tagliati e gestiti per il training
     su una rete neurale, con supporto per il trasferimento dei dati sulla GPU.
@@ -1238,24 +1244,19 @@ class CADDataset(torch.utils.data.Dataset):
         name="np_out2_all_11000_train_2.npy",
         split_twice=False,
         pc_slice=plane_split,
-        random=False,
-        need=False,
-        device=None,  # Aggiunto il parametro per il dispositivo
+        device=None,  # Device to use for the data
     ):
         super().__init__()
         self.device = (
             device if device else torch.device("cpu")
-        )  # Se il dispositivo non è passato, usa la CPU
+        )  # If no device is provided, use the CPU
         self.split_twice = split_twice
-        # print("split_twice", split_twice)
         self.path = path
         self.all = np.load(os.path.join(self.path, name), allow_pickle=True)
 
         if self.all is not None:
             print(self.all.shape)
         self.split = pc_slice
-        self.rigid_transform = transforms.RandomTransformSE3(0.8, random)
-        self.need = need
 
         assert split_rate <= 1
         assert split_rate > 0
@@ -1305,14 +1306,10 @@ class CADDataset(torch.utils.data.Dataset):
         return point
 
     def getitem_non_random(self, index):
-        # print("I?M HERE")
         pc = self.all[index]
-        # print(pc)
         up, down = self.split(np.array(pc, dtype=np.float32))
-        # print(up.shape, down.shape)
         while up.shape[0] < 1024 or down.shape[0] < 1024:
-            # print(up.shape, down.shape)
-
+            #   print(up.shape, down.shape)
             up, down = self.split(np.array(pc, dtype=np.float32))
 
         self.up = self.fps(up, 1024)  # facade point cloud
@@ -1323,12 +1320,9 @@ class CADDataset(torch.utils.data.Dataset):
 
         self.fpcb, self.rpcb, fpc_idx, rpc_idx = self.get_boundary(self.down, self.up)
 
-        return self.rotatepiece(
-            index, self.up, self.down, self.fpcb, self.rpcb, fpc_idx, rpc_idx
-        )
+        return self.up, self.down, self.fpcb, self.rpcb, fpc_idx, rpc_idx
 
-    def slice(self, index, z, up, down, times=5):
-        pc = self.all[index]
+    def slice(self, pc, z, up, down, times=5):
         time = 0
         while up.shape[0] < 1024 or down.shape[0] < 1024:
             up, down = self.split(pc, z)
@@ -1336,66 +1330,49 @@ class CADDataset(torch.utils.data.Dataset):
         self.up = torch.from_numpy(up).float()
         self.down = torch.from_numpy(down).float()
         self.fpcb, self.rpcb, fpc_idx, rpc_idx = self.get_boundary(self.down, self.up)
-        return self.rotatepiece(
-            index, self.up, self.down, self.fpcb, self.rpcb, fpc_idx, rpc_idx
-        )
+        return self.up, self.down, self.fpcb, self.rpcb, fpc_idx, rpc_idx
 
-    def rotatepiece(self, index, up, down, downb, upb, fpc_idx, rpc_idx):
-        mup = self.rigid_transform(up)
-        igt = self.rigid_transform.igt  # igt: up-> mup
-        mupb = self.rigid_transform(upb)
+    # def rotatepiece(self, index, up, down, downb, upb, fpc_idx, rpc_idx):
+    #     mup = self.rigid_transform(up)
+    #     igt = self.rigid_transform.igt  # igt: up-> mup
+    #     mupb = self.rigid_transform(upb)
 
-        if self.need:
-            return (
-                down,
-                mup,
-                igt,
-                up,
-                downb,
-                upb,
-                fpc_idx,
-                rpc_idx,
-                self.dataset[index][-1],
-            )
-        return down, mup, igt, up, downb, upb, fpc_idx, rpc_idx
+    #     if self.need:
+    #         return (
+    #             down,
+    #             mup,
+    #             igt,
+    #             up,
+    #             downb,
+    #             upb,
+    #             fpc_idx,
+    #             rpc_idx,
+    #             self.dataset[index][-1],
+    #         )
+    #     return down, mup, igt, up, downb, upb, fpc_idx, rpc_idx
 
     def __getitem__(self, index):
         # print(index)
         if not self.split_twice:
             return self.getitem_non_random(index)
-        # print("FIRST IF NOT STUCK")
         pc = self.all[index]
         slice_seed = torch.randint(0, 3, (1,))
         slice_seed = int(slice_seed)
         up, down = self.split(np.array(pc, dtype=np.float32))
 
         if slice_seed == 0:
-            # print("SECOND IF IS TRUE")
-
-            return self.slice(index, None, up, down)
+            return self.slice(pc, None, up, down)
         elif slice_seed == 1:
-            # print("SECOND IF IS FALSE")
-
             time = 0
             uppc, downpc = self.split(up, None)
             while time <= 5 and (uppc.shape[0] < 1024 or downpc.shape[0] < 1024):
-                # print("STUCK IN THE WHILE")
-
                 uppc, downpc = self.split(up, None)
                 time += 1
-            # print("NOT STUCK IN THE WHILE")
-
             if time > 5 and (uppc.shape[0] < 1024 or downpc.shape[0] < 1024):
-                # print("SECOND, A IF IS TRUE")
-
-                return self.slice(index, None, up, down)
+                return self.slice(pc, None, up, down)
             if uppc.shape[0] >= 1024 and downpc.shape[0] >= 1024:
-                # print("SECOND, B IF IS TRUE")
-
                 se = int(torch.randint(0, 3, (1,)))
                 if se == 0 or down.shape[0] < 1024:
-                    # print("SECOND, B, i IF IS TRUE")
-
                     choice = int(torch.randint(0, 2, (1,)))
                     up_up = [uppc, downpc][choice]
                     up_up = self.fps(up_up, 1024)
@@ -1405,12 +1382,8 @@ class CADDataset(torch.utils.data.Dataset):
                     up_up = torch.from_numpy(up_up).float().to(self.device)
                     up_down = torch.from_numpy(up_down).float().to(self.device)
                     fpcb, rpcb, fpc_idx, rpc_idx = self.get_boundary(up_down, up_up)
-                    return self.rotatepiece(
-                        index, up_up, up_down, fpcb, rpcb, fpc_idx, rpc_idx
-                    )
+                    return up_up, up_down, fpcb, rpcb, fpc_idx, rpc_idx
                 elif se == 1:
-                    # print("SECOND, B, ii IF IS TRUE")
-
                     choice = int(torch.randint(0, 2, (1,)))
                     up_up = [uppc, downpc][choice]
                     up_up = self.fps(up_up, 1024)
@@ -1418,14 +1391,10 @@ class CADDataset(torch.utils.data.Dataset):
                     up_up = torch.from_numpy(up_up).float().to(self.device)
                     up_down = torch.from_numpy(up_down).float().to(self.device)
                     fpcb, rpcb, fpc_idx, rpc_idx = self.get_boundary(up_down, up_up)
-                    return self.rotatepiece(
-                        index, up_up, up_down, fpcb, rpcb, fpc_idx, rpc_idx
-                    )
+                    return up_up, up_down, fpcb, rpcb, fpc_idx, rpc_idx
 
                 uppc, downpc = self.split(up, None)
-        # print("LAST IF NOT STUCK")
-
-        return self.slice(index, None, up, down)
+        return self.slice(pc, None, up, down)
 
     def get_boundary(self, fpc, de_mrpc):
         cd1, cd2 = self.chamfer_loss(fpc.unsqueeze(0), de_mrpc.unsqueeze(0))
@@ -1511,7 +1480,7 @@ class BuildingDataset(torch.utils.data.Dataset):
 
 def get_dataset(category, random=False, random_slice=False):
     '''
-    cad_datapath = "/home/code/transReg/data/cad"
+    path_dataset = "/home/code/transReg/data/cad"
     building_datapath = "/home/code/fmr/data/"
 
     # 对只切一刀的情况，不要用太大的数据，节省fps过程的时间。
@@ -1520,14 +1489,12 @@ def get_dataset(category, random=False, random_slice=False):
     else:
         name = "np_out_all_6000_train_2.npy"
     name = "np_out2_all_11000_train_2.npy"
-    bed_name = "np_ob_all_10000_train_2.npy"
+    dataset = "np_ob_all_10000_train_2.npy"
     vase_name = "np_vase_all_11000_train_2.npy"'''
 
     path_dataset = "/media/tesistiremoti/Volume/MuseoEgizio/PuzzleNet/data"
-    breakingBad = "bed_airplane_modelnet40_train.npy"
-
-    # path_dataset = "/media/tesistiremoti/Volume/MuseoEgizio/PuzzleNet/data"
-    # breakingBad = "np_vase_all_11000_test_2.npy"
+    # dataset = "BreakingBad_everyday_1pc_train.npy"
+    dataset = "bed_airplane_modelnet40_train.npy"
 
     if category == "fr":
         # 建筑点云
@@ -1543,21 +1510,21 @@ def get_dataset(category, random=False, random_slice=False):
     elif category == "cadr":
         # 平面切
         traindataset = CADDataset(
-            cad_datapath,
+            path_dataset,
             "train",
             split_twice=random_slice,
             pc_slice=plane_split,
             name=name,
         )
         valdataset = CADDataset(
-            cad_datapath,
+            path_dataset,
             "val",
             split_twice=random_slice,
             pc_slice=plane_split,
             name=name,
         )
         testdataset = CADDataset(
-            cad_datapath,
+            path_dataset,
             "test",
             split_twice=random_slice,
             pc_slice=plane_split,
@@ -1565,21 +1532,21 @@ def get_dataset(category, random=False, random_slice=False):
         )
     elif category == "cad_cyl":
         # 柱面切
-        #  all = np.load(os.path.join(cad_datapath, name), allow_pickle=True)
+        #  all = np.load(os.path.join(path_dataset, name), allow_pickle=True)
         traindataset = CADDataset(
-            cad_datapath,
+            path_dataset,
             "train",
             split_twice=random_slice,
             pc_slice=cylinder_split,
         )
         valdataset = CADDataset(
-            cad_datapath,
+            path_dataset,
             "val",
             split_twice=random_slice,
             pc_slice=cylinder_split,
         )
         testdataset = CADDataset(
-            cad_datapath,
+            path_dataset,
             "test",
             split_twice=random_slice,
             pc_slice=cylinder_split,
@@ -1587,31 +1554,30 @@ def get_dataset(category, random=False, random_slice=False):
     elif category == "cad_cone":
         # 锥面切
         traindataset = CADDataset(
-            cad_datapath, "train", split_twice=random_slice, pc_slice=cone_split
+            path_dataset, "train", split_twice=random_slice, pc_slice=cone_split
         )
         valdataset = CADDataset(
-            cad_datapath, "val", split_twice=random_slice, pc_slice=cone_split
+            path_dataset, "val", split_twice=random_slice, pc_slice=cone_split
         )
         testdataset = CADDataset(
-            cad_datapath, "test", split_twice=random_slice, pc_slice=cone_split
+            path_dataset, "test", split_twice=random_slice, pc_slice=cone_split
         )
     elif category == "cad_sphere":
         # 球面切
         traindataset = CADDataset(
-            cad_datapath, "train", split_twice=random_slice, pc_slice=sphere_split
+            path_dataset, "train", split_twice=random_slice, pc_slice=sphere_split
         )
         valdataset = CADDataset(
-            cad_datapath, "val", split_twice=random_slice, pc_slice=sphere_split
+            path_dataset, "val", split_twice=random_slice, pc_slice=sphere_split
         )
         testdataset = CADDataset(
-            cad_datapath, "test", split_twice=random_slice, pc_slice=sphere_split
+            path_dataset, "test", split_twice=random_slice, pc_slice=sphere_split
         )
-
     elif category == "bed_sphere":
         # 球面切
         traindataset = CADDataset(
             path_dataset,
-            name=breakingBad,
+            name=dataset,
             mode="train",
             split_twice=random_slice,
             pc_slice=sphere_split,
@@ -1619,7 +1585,7 @@ def get_dataset(category, random=False, random_slice=False):
         )
         valdataset = CADDataset(
             path_dataset,
-            name=breakingBad,
+            name=dataset,
             mode="val",
             split_twice=random_slice,
             pc_slice=sphere_split,
@@ -1627,7 +1593,7 @@ def get_dataset(category, random=False, random_slice=False):
         )
         testdataset = CADDataset(
             path_dataset,
-            name=breakingBad,
+            name=dataset,
             mode="test",
             split_twice=random_slice,
             pc_slice=sphere_split,
@@ -1636,54 +1602,60 @@ def get_dataset(category, random=False, random_slice=False):
     elif category == "bed_cone":
         # 球面切
         traindataset = CADDataset(
-            cad_datapath,
-            name=bed_name,
+            path_dataset,
+            name=dataset,
             mode="train",
             split_twice=random_slice,
             pc_slice=cone_split,
+            device="cuda",
         )
         valdataset = CADDataset(
-            cad_datapath,
-            name=bed_name,
+            path_dataset,
+            name=dataset,
             mode="val",
             split_twice=random_slice,
             pc_slice=cone_split,
+            device="cuda",
         )
         testdataset = CADDataset(
-            cad_datapath,
-            name=bed_name,
+            path_dataset,
+            name=dataset,
             mode="test",
             split_twice=random_slice,
             pc_slice=cone_split,
+            device="cuda",
         )
     elif category == "bed_cyl":
         # 球面切
         traindataset = CADDataset(
-            cad_datapath,
-            name=bed_name,
+            path_dataset,
+            name=dataset,
             mode="train",
             split_twice=random_slice,
             pc_slice=cylinder_split,
+            device="cuda",
         )
         valdataset = CADDataset(
-            cad_datapath,
-            name=bed_name,
+            path_dataset,
+            name=dataset,
             mode="val",
             split_twice=random_slice,
             pc_slice=cylinder_split,
+            device="cuda",
         )
         testdataset = CADDataset(
-            cad_datapath,
-            name=bed_name,
+            path_dataset,
+            name=dataset,
             mode="test",
             split_twice=random_slice,
             pc_slice=cylinder_split,
+            device="cuda",
         )
     elif category == "bedr":
         # 球面切
         traindataset = CADDataset(
             path_dataset,
-            name=breakingBad,
+            name=dataset,
             mode="train",
             split_twice=random_slice,
             pc_slice=plane_split,
@@ -1691,7 +1663,7 @@ def get_dataset(category, random=False, random_slice=False):
         )
         valdataset = CADDataset(
             path_dataset,
-            name=breakingBad,
+            name=dataset,
             mode="val",
             split_twice=random_slice,
             pc_slice=plane_split,
@@ -1699,7 +1671,7 @@ def get_dataset(category, random=False, random_slice=False):
         )
         testdataset = CADDataset(
             path_dataset,
-            name=breakingBad,
+            name=dataset,
             mode="test",
             split_twice=random_slice,
             pc_slice=plane_split,
@@ -1708,21 +1680,21 @@ def get_dataset(category, random=False, random_slice=False):
     elif category == "vaser":
         # 球面切
         traindataset = CADDataset(
-            cad_datapath,
+            path_dataset,
             name=vase_name,
             mode="train",
             split_twice=random_slice,
             pc_slice=plane_split,
         )
         valdataset = CADDataset(
-            cad_datapath,
+            path_dataset,
             name=vase_name,
             mode="val",
             split_twice=random_slice,
             pc_slice=plane_split,
         )
         testdataset = CADDataset(
-            cad_datapath,
+            path_dataset,
             name=vase_name,
             mode="test",
             split_twice=random_slice,
@@ -1731,21 +1703,21 @@ def get_dataset(category, random=False, random_slice=False):
     elif category == "vase_cone":
         # 球面切
         traindataset = CADDataset(
-            cad_datapath,
+            path_dataset,
             name=vase_name,
             mode="train",
             split_twice=random_slice,
             pc_slice=cone_split,
         )
         valdataset = CADDataset(
-            cad_datapath,
+            path_dataset,
             name=vase_name,
             mode="val",
             split_twice=random_slice,
             pc_slice=cone_split,
         )
         testdataset = CADDataset(
-            cad_datapath,
+            path_dataset,
             name=vase_name,
             mode="test",
             split_twice=random_slice,
@@ -1754,21 +1726,21 @@ def get_dataset(category, random=False, random_slice=False):
     elif category == "vase_cyl":
         # 球面切
         traindataset = CADDataset(
-            cad_datapath,
+            path_dataset,
             name=vase_name,
             mode="train",
             split_twice=random_slice,
             pc_slice=cylinder_split,
         )
         valdataset = CADDataset(
-            cad_datapath,
+            path_dataset,
             name=vase_name,
             mode="val",
             split_twice=random_slice,
             pc_slice=cylinder_split,
         )
         testdataset = CADDataset(
-            cad_datapath,
+            path_dataset,
             name=vase_name,
             mode="test",
             split_twice=random_slice,
@@ -1777,21 +1749,21 @@ def get_dataset(category, random=False, random_slice=False):
     elif category == "vase_sphere":
         # 球面切
         traindataset = CADDataset(
-            cad_datapath,
+            path_dataset,
             name=vase_name,
             mode="train",
             split_twice=random_slice,
             pc_slice=sphere_split,
         )
         valdataset = CADDataset(
-            cad_datapath,
+            path_dataset,
             name=vase_name,
             mode="val",
             split_twice=random_slice,
             pc_slice=sphere_split,
         )
         testdataset = CADDataset(
-            cad_datapath,
+            path_dataset,
             name=vase_name,
             mode="test",
             split_twice=random_slice,
@@ -1804,11 +1776,11 @@ def get_dataset(category, random=False, random_slice=False):
     else:
         raise RuntimeError("Unknown dataset")
 
-    # trainset = MovedCADDataset2(
-    #     traindataset, transforms.RandomTransformSE3(0.8, random)
-    # )
-    # valset = MovedCADDataset2(valdataset, transforms.RandomTransformSE3(0.8, random))
-    # testset = MovedCADDataset2(testdataset, transforms.RandomTransformSE3(0.8, random))
+    trainset = MovedCADDataset2(
+        traindataset, transforms.RandomTransformSE3(0.8, random)
+    )
+    valset = MovedCADDataset2(valdataset, transforms.RandomTransformSE3(0.8, random))
+    testset = MovedCADDataset2(testdataset, transforms.RandomTransformSE3(0.8, random))
 
-    # return trainset, valset, testset
-    return traindataset, valdataset, testdataset
+    return trainset, valset, testset
+    # return traindataset, valdataset, testdataset

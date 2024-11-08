@@ -196,6 +196,7 @@ def main(opt):
         devices=[opt.device],
         default_root_dir=opt.output_path,
         max_epochs=opt.epochs,
+        progress_bar_refresh_rate=10,
         #  callbacks=[checkpoint_callback, early_stop],
         callbacks=[checkpoint_callback],
         log_every_n_steps=2,
