@@ -31,9 +31,9 @@ def parse_arg(argv=None):
     parser.add_argument(
         "--output_path", help="path to store output_folders", type=str, default="TRG"
     )
-    parser.add_argument("--device", help="choose device to use", type=int, default=2)
+    parser.add_argument("--device", help="choose device to use", type=int, default=0)
     parser.add_argument("--dim-k", default=1024, type=int, help="length of feature")
-    parser.add_argument("--epochs", default=100000, type=int, help="epochs")
+    parser.add_argument("--epochs", default=100, type=int, help="epochs")
     parser.add_argument(
         "--max_iter", default=50, type=int, help="max-iter on IC algorithm"
     )
@@ -66,7 +66,7 @@ def parse_arg(argv=None):
     parser.add_argument("--beta", default=1.0, type=float)
     parser.add_argument("--lr", default=1e-3, type=float)
     parser.add_argument(
-        "--dataset", default="cadr", type=str, help="dataset type, fr or cad or bs"
+        "--dataset", default="bedr", type=str, help="dataset type, fr or cad or bs"
     )
     parser.add_argument(
         "--look", default=False, action="store_true", help="look or not"
@@ -100,7 +100,9 @@ def main(opt):
     # save setting
     argsDic = opt.__dict__
     dir = os.path.join(opt.output_path)
-    opt.output_path = os.path.join("/home/code/transReg/val/test_out/")
+    opt.output_path = os.path.join(
+        "/media/tesistiremoti/Volume/MuseoEgizio/PuzzleNet/TRG/Nov07_12-43-22"
+    )
     model_path = os.path.join("/home/code/transReg/val/models_5")
 
     # get Model
@@ -141,14 +143,14 @@ def main(opt):
     #  model = import_model.TouchedRegraster.load_from_checkpoint('/home/code/transReg/TRG/Oct14_16-08-36/epoch=5111-losstrain_loss=3.38435793.ckpt') # 1
     #  model = import_model.TouchedRegraster.load_from_checkpoint('/home/code/transReg/TRG/Oct14_16-08-36/epoch=5104-losstrain_loss=3.45459270.ckpt') # 1
     #  model = import_model.TouchedRegraster.load_from_checkpoint('/home/code/transReg/TRG/Oct14_16-08-36/epoch=5881-losstrain_loss=2.97773314.ckpt') # 1
-    model = import_model.TouchedRegraster.load_from_checkpoint(
+    """model = import_model.TouchedRegraster.load_from_checkpoint(
         "/home/code/transReg/TRG/Oct14_16-08-36/epoch=7070-losstrain_loss=1.56574667.ckpt"
     )  # 1
     model = import_model.TouchedRegraster.load_from_checkpoint(
         "/home/code/transReg/TRG/Oct14_16-08-36/epoch=7728-losstrain_loss=1.64379442.ckpt"
-    )  # 1
+    )  # 1"""
     model = import_model.TouchedRegraster.load_from_checkpoint(
-        "/home/code/transReg/TRG/Dec26_14-46-41/epoch=11579-losstrain_loss=0.72871453.ckpt"
+        "/media/tesistiremoti/Volume/MuseoEgizio/PuzzleNet/TRG/Nov07_12-43-22/epoch=246-losstrain_loss=126.88374329.ckpt"
     )  # 1
 
     print(model.C.dataset)
@@ -157,7 +159,8 @@ def main(opt):
     trainset, _, testdataset = dataset.get_dataset(
         model.C.dataset, random=False, random_slice=False
     )
-    num_workers = torch.cuda.device_count() * 4
+    #   num_workers = torch.cuda.device_count() * 4
+    num_workers = 64
     traindataloder = torch.utils.data.DataLoader(
         trainset, batch_size=1, drop_last=False, shuffle=False, num_workers=num_workers
     )

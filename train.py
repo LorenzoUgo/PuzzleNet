@@ -133,21 +133,23 @@ def main(opt):
     traindataset, valdataset, testdataset = dataset.get_dataset(
         opt.dataset, random=opt.random, random_slice=opt.random_slice
     )
-    num_workers = torch.cuda.device_count() * 4
+    #   num_workers = torch.cuda.device_count() * 4
     num_workers = 64
     #  num_workers = 4
     traindataloader = torch.utils.data.DataLoader(
         traindataset,
         batch_size=opt.batch_size,
-        drop_last=True,
+        drop_last=False,
         shuffle=True,
+        pin_memory=True,
         num_workers=num_workers,
     )
     valdataloader = torch.utils.data.DataLoader(
         valdataset,
         batch_size=opt.batch_size,
-        drop_last=True,
+        drop_last=False,
         shuffle=False,
+        pin_memory=True,
         num_workers=num_workers,
     )
     # TODO: batch_size 应该是1去做
@@ -156,11 +158,18 @@ def main(opt):
         batch_size=1,
         drop_last=False,
         shuffle=False,
+        pin_memory=True,
         num_workers=num_workers,
     )
-    print(len(valdataset))
-    print(len(traindataset))
 
+    print(next(iter(traindataloader))[0].shape)
+
+    # exit(1)
+    print(len(valdataloader), len(traindataloader), len(testdataloader))
+    print("TEST", len(testdataset))
+
+    print("VAL", len(valdataset))
+    print("TRAIN", len(traindataset))
     # TODO: trainer 的配置需要增加一些
     #  trainer = pl.Trainer(accelerator='gpu',
     #  devices=[opt.device],
@@ -187,13 +196,20 @@ def main(opt):
         devices=[opt.device],
         default_root_dir=opt.output_path,
         max_epochs=opt.epochs,
+        progress_bar_refresh_rate=10,
         #  callbacks=[checkpoint_callback, early_stop],
         callbacks=[checkpoint_callback],
-        #  log_every_n_steps=3,
+        log_every_n_steps=2,
         check_val_every_n_epoch=10,
         #  num_sanity_val_steps=0,
+        enable_progress_bar=True,
+        enable_checkpointing=True,
+        # fast_dev_run=True,
     )
+    print("---> Start training ...")
     trainer.fit(model, traindataloader, val_dataloaders=valdataloader)
+
+    print("---> Start testing ...")
     trainer.test(model, dataloaders=testdataloader)
 
 
